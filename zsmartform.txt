@@ -1,0 +1,132 @@
+*&---------------------------------------------------------------------*
+*& Report ZSD_INVOICE_LAYOUT_FORM_UAE
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zsd_invoice_layout_form_uae.
+
+DATA : wa_vbrk          TYPE vbrk,
+       gs_vbrp          TYPE TABLE OF vbrp,
+       wa_vbrp          TYPE vbrp,
+       wa_t001w         TYPE t001w,
+       wa_adrc          TYPE adrc,
+       wa_vbpa          TYPE vbpa,
+       gs_final         TYPE TABLE OF zst_invoice_uae,
+       wa_final         TYPE zst_invoice_uae,
+       gs_mat           TYPE TABLE OF zst_invoice_uae1,
+       wa_mat           TYPE zst_invoice_uae1,
+       wa_PRCD_ELEMENTS TYPE prcd_elements,
+       var              TYPE int4,
+       var1             TYPE char10,
+       dvbeln           TYPE vbrk-vbeln,
+       sform_fm         TYPE rs38l_fnam,
+       vartT            TYPE char30 VALUE 'TAX INVOICE' ##NO_TEXT,
+       vartS            TYPE char30 VALUE 'SCRAP SALE INVOICE' ##NO_TEXT,
+       vartso           TYPE char30 VALUE 'ASSET SALE INVOICE' ##NO_TEXT,
+       vartd            TYPE char30 VALUE 'SERVICE INVOICE' ##NO_TEXT,
+       vartm            TYPE char30 VALUE 'INTERCOMPANY INVOICE' ##NO_TEXT.
+
+GET PARAMETER ID 'VF' FIELD dvbeln.
+IF dvbeln IS NOT INITIAL.
+  CLEAR gs_final.
+  SELECT SINGLE vbeln vkorg fkdat zterm fkart FROM vbrk INTO CORRESPONDING FIELDS OF wa_vbrk WHERE vbeln = dvbeln ##warn_ok.
+  IF wa_vbrk-vkorg = 'AE02' OR wa_vbrk-vkorg = 'AE03'.
+    wa_final-vbeln = wa_vbrk-vbeln. "Inovice number
+    wa_final-fkdat = wa_vbrk-fkdat. "Bill date
+    wa_final-zterm = wa_vbrk-zterm. "Credit Term
+    wa_final-ddate = wa_vbrk-fkdat + wa_final-zterm. "DUE Date
+    IF wa_vbrk-fkart = 'ZRSA'.
+      wa_final-fkart = vartT.
+    ELSEIF wa_vbrk-fkart = 'ZRSS'.
+      wa_final-fkart = vartS.
+    ELSEIF wa_vbrk-fkart = 'ZRAS'.
+      wa_final-fkart = vartso.
+    ELSEIF wa_vbrk-fkart = 'ZRSO'.
+      wa_final-fkart = vartd.
+    ELSEIF wa_vbrk-fkart = 'IV'.
+      wa_final-fkart = vartm.
+    ENDIF.
+**    for fetching bill to address
+    SELECT SINGLE adrnr FROM vbpa INTO CORRESPONDING FIELDS OF wa_vbpa WHERE vbeln = wa_vbrk-vbeln AND parvw = 'RE' ."#EC CI_NOORDER
+    SELECT SINGLE name1 name2 street str_suppl1 str_suppl2 city1 post_code1 country FROM adrc INTO CORRESPONDING FIELDS OF wa_adrc WHERE addrnumber = wa_vbpa-adrnr ."#EC CI_NOORDER
+    wa_final-name11 = wa_adrc-name1. "bill to name1
+    wa_final-Name21 = wa_adrc-name2. "bill to name 2
+    wa_final-Street1 = wa_adrc-street. "bill to street
+    wa_final-str_suppl11 = wa_adrc-str_suppl1.
+    wa_final-str_suppl21 = wa_adrc-str_suppl2.
+    wa_final-city11 = wa_adrc-city1. "bill to city
+    wa_final-post_code11 = wa_adrc-post_code1."bill to post code
+    wa_final-country1 = wa_adrc-country."bill to country
+    CLEAR wa_adrc.
+    SELECT vbeln matnr arktx fkimg knumv_ana werks FROM vbrp INTO CORRESPONDING FIELDS OF TABLE gs_vbrp WHERE vbeln = wa_vbrk-vbeln.
+    READ TABLE gs_vbrp INTO wa_vbrp WITH KEY vbeln = wa_vbrk-vbeln.
+    SELECT SINGLE adrnr FROM t001w INTO CORRESPONDING FIELDS OF wa_t001w WHERE werks = wa_vbrp-werks ."#EC CI_NOORDER
+    SELECT SINGLE name1 name2 street str_suppl1 str_suppl2 city1 post_code1 country tel_number fax_number FROM adrc INTO CORRESPONDING FIELDS OF wa_adrc WHERE addrnumber = wa_t001w-adrnr ."#EC CI_NOORDER
+    wa_final-name1 = wa_adrc-name1.
+    wa_final-Name2 = wa_adrc-name2.
+    wa_final-Street = wa_adrc-street.
+    wa_final-str_suppl1 = wa_adrc-str_suppl1.
+    wa_final-str_suppl2 = wa_adrc-str_suppl2.
+    wa_final-city1 = wa_adrc-city1.
+    wa_final-post_code1 = wa_adrc-post_code1.
+    wa_final-country = wa_adrc-country.
+    wa_final-tel_number = wa_adrc-tel_number.
+    wa_final-fax_number = wa_adrc-fax_number.
+    LOOP AT gs_vbrp INTO wa_vbrp.
+      CLEAR wa_mat.
+      wa_MAT-matnr = wa_vbrp-matnr.
+      wa_MAT-arktx = wa_vbrp-arktx.
+      wa_MAT-fkimg = wa_vbrp-fkimg.
+
+      SELECT SINGLE kbetr FROM prcd_elements INTO CORRESPONDING FIELDS OF wa_PRCD_ELEMENTS WHERE knumv = wa_vbrp-knumv_ana AND kschl = 'ZPRI' ."#EC CI_NOORDER
+      wa_MAT-unitp = wa_PRCD_ELEMENTS-kbetr."unit price
+      CLEAR wa_prcd_elements.
+      SELECT SINGLE kbetr kschl kawrt kwert FROM prcd_elements INTO CORRESPONDING FIELDS OF wa_PRCD_ELEMENTS WHERE knumv = wa_vbrp-knumv_ana AND kschl = 'MWST' ."#EC CI_NOORDER
+      wa_MAT-kbetr = wa_prcd_elements-kbetr. " vat rate
+      wa_MAT-gross = wa_prcd_elements-kawrt. "gross
+      wa_MAT-vatamt = wa_prcd_elements-kwert. "Vat amount
+      wa_MAT-net = wa_prcd_elements-kawrt + wa_prcd_elements-kwert. "Net
+      APPEND wa_mat TO gs_mat.
+    ENDLOOP.
+    APPEND wa_final TO gs_final.
+
+    CALL FUNCTION 'SSF_FUNCTION_MODULE_NAME'
+      EXPORTING
+        formname = 'ZSF_INVOICE_LAYOUT_IN'
+      IMPORTING
+        fm_name  = sform_fm.
+*    IF sy-subrc <> 0.
+** Implement suitable error handling here
+*    ENDIF.
+    CALL FUNCTION '/1BCDWB/SF00000015'
+* EXPORTING
+*   ARCHIVE_INDEX              =
+*   ARCHIVE_INDEX_TAB          =
+*   ARCHIVE_PARAMETERS         =
+*   CONTROL_PARAMETERS         =
+*   MAIL_APPL_OBJ              =
+*   MAIL_RECIPIENT             =
+*   MAIL_SENDER                =
+*   OUTPUT_OPTIONS             =
+*   USER_SETTINGS              = 'X'
+* IMPORTING
+*   DOCUMENT_OUTPUT_INFO       =
+*   JOB_OUTPUT_INFO            =
+*   JOB_OUTPUT_OPTIONS         =
+      TABLES
+        gs_final = gs_final
+        gs_mat   = gs_mat
+* EXCEPTIONS
+*       FORMATTING_ERROR           = 1
+*       INTERNAL_ERROR             = 2
+*       SEND_ERROR                 = 3
+*       USER_CANCELED              = 4
+*       OTHERS   = 5
+      .
+*    IF sy-subrc <> 0.
+**   Implement suitable error handling here
+*    ENDIF.
+
+
+  ENDIF.
+ENDIF.
