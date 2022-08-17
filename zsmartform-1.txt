@@ -1,0 +1,195 @@
+*&---------------------------------------------------------------------*
+*& Report ZSD_INVOICE_LAYOUT_FORM_UAE
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zsd_invoice_layout_form_uae.
+
+DATA : wa_vbrk          TYPE vbrk,
+       gs_vbrp          TYPE TABLE OF vbrp,
+       wa_vbrp          TYPE vbrp,
+       wa_t001w         TYPE t001w,
+       wa_adrc          TYPE adrc,
+       wa_vbpa          TYPE vbpa,
+       gs_final         TYPE TABLE OF zst_invoice_uae,
+       wa_final         TYPE zst_invoice_uae,
+       gs_mat           TYPE TABLE OF zst_invoice_uae1,
+       wa_mat           TYPE zst_invoice_uae1,
+       wa_PRCD_ELEMENTS TYPE prcd_elements,
+       var              TYPE int4,
+       var1             TYPE char10,
+       dvbeln           TYPE vbrk-vbeln,
+       sform_fm         TYPE rs38l_fnam,
+       vartT            TYPE char30 VALUE 'TAX INVOICE' ##NO_TEXT,
+       vartS            TYPE char30 VALUE 'SCRAP SALE INVOICE' ##NO_TEXT,
+       vartso           TYPE char30 VALUE 'ASSET SALE INVOICE' ##NO_TEXT,
+       vartd            TYPE char30 VALUE 'SERVICE INVOICE' ##NO_TEXT,
+       vartm            TYPE char30 VALUE 'INTERCOMPANY INVOICE' ##NO_TEXT.
+
+GET PARAMETER ID 'VF' FIELD dvbeln.
+IF dvbeln IS NOT INITIAL.
+  CLEAR gs_final.
+  select single A~vbeln,
+                a~vkorg,
+                a~fkdat,
+                a~zterm,
+                a~fkart,
+                b~adrnr, 
+                c~name1,
+                c~name2,
+                c~street, 
+                c~str_suppl1,
+                c~str_suppl2
+                c~city1, 
+                c~post_code1, 
+                c~country
+                into table @data(lt_tmp)
+                from vbrk as a 
+                left outer join 
+                vbpa as b
+                on a~vbeln = b~vbeln and b~parvw = 'RE'                
+                left outer join
+                adrd as c
+                on b~adrnr = c~addrnumber               
+                where  a~vbeln = @dvbeln 
+  if lt_tmp[] is not initial.
+    SELECT a~vbeln,
+           a~matnr,
+           a~arktx,
+           a~fkimg,
+           a~knumv_ana 
+           a~werks,
+           b~adrnr,
+           c~name1,
+           c~name2,
+           c~street, 
+           c~str_suppl1,
+           c~str_suppl2,
+           c~city1,
+           c~post_code1,
+           c~country,
+           c~tel_number,
+           c~fax_number  into table @data(lt_tmp1) 
+           FROM vbrp as a
+           inner join
+           t001w as b
+           on a~werks = b~werks
+           inner join adrc as c 
+           on b~adrnr = c~addrnumber   	
+     for all entries in @lt_tmp	
+     WHERE vbeln = @lt_tmp-vbeln.		  
+  if lt_tmp1 is not initial.
+  select knumv, kbetr, kschl, kawrt, kwert from prcd_elements
+  into table @data(lt_prcd) 
+  for all entries in @lt_tmp1
+  where knumv = @lt_tmp1-knumv-ana and kschl in ('ZPRI','MWST')
+  endif.
+  endif.
+  
+sort lt_tmp1 by vbeln. 
+loop at lt_tmp into data(ls_tmp).
+IF ls_tmp-vkorg = 'AE02' OR ls_tmp-vkorg = 'AE03'.
+    wa_final-vbeln = ls_tmp-vbeln. "Inovice number
+    wa_final-fkdat = ls_tmp-fkdat. "Bill date
+    wa_final-zterm = ls_tmp-zterm. "Credit Term
+    wa_final-ddate = ls_tmp-fkdat + wa_final-zterm. "DUE Date	
+    IF ls_tmp-fkart = 'ZRSA'.
+      wa_final-fkart = vartT.
+    ELSEIF ls_tmp-fkart = 'ZRSS'.
+      wa_final-fkart = vartS.
+    ELSEIF ls_tmp-fkart = 'ZRAS'.
+      wa_final-fkart = vartso.
+    ELSEIF ls_tmp-fkart = 'ZRSO'.
+      wa_final-fkart = vartd.
+    ELSEIF ls_tmp-fkart = 'IV'.
+      wa_final-fkart = vartm.
+    ENDIF.
+    wa_final-name11 = ls_tmp-name1. "bill to name1
+    wa_final-Name21 = ls_tmp-name2. "bill to name 2
+    wa_final-Street1 = ls_tmp-street. "bill to street
+    wa_final-str_suppl11 = ls_tmp-str_suppl1.
+    wa_final-str_suppl21 = ls_tmp-str_suppl2.
+    wa_final-city11 = ls_tmp-city1. "bill to city
+    wa_final-post_code11 = ls_tmp-post_code1."bill to post code
+    wa_final-country1 = ls_tmp-country."bill to country	
+    read table lt_tmp1 into data(ls_tmp1) with key vbeln = ls_tmp-vbeln binary search.
+    if sy-subrc eq 0.
+	wa_final-name1 = ls_tmp1-name1.
+    	wa_final-Name2 = ls_tmp1-name2.
+    	wa_final-Street = ls_tmp1-street.
+    	wa_final-str_suppl1 = ls_tmp1-str_suppl1.
+    	wa_final-str_suppl2 = ls_tmp1-str_suppl2.
+    	wa_final-city1 = ls_tmp1-city1.
+    	wa_final-post_code1 = ls_tmp1-post_code1.
+    	wa_final-country = ls_tmp1-country.
+    	wa_final-tel_number = ls_tmp1-tel_number.
+    	wa_final-fax_number = ls_tmp1-fax_number.	
+    endif.	
+    APPEND wa_final TO gs_final.
+endif.
+clear : ls_tmp,wa_final,ls_tmp1.
+endloop.
+
+sort lt_prcd by knumv kschl.
+loop at lt_tmp1 into ls_tmp1.
+    wa_MAT-matnr = ls_tmp1-matnr.
+    wa_MAT-arktx = ls_tmp1-arktx.
+    wa_MAT-fkimg = ls_tmp1-fkimg.
+    read table lt_prcd INTO data(ls_prcd) with key knumv = ls_tmp1-knumv_ana kschl = 'ZPRI' binary search.
+    if sy-subrc eq 0.
+    	wa_MAT-unitp = ls_PRCD-kbetr."unit price	
+    endif.
+      CLEAR ls_prcd.
+      read table lt_prcd INTO ls_prcd with key knumv = ls_tmp1-knumv_ana kschl = 'MWST' binary search.
+      if sy-subrc eq 0
+      wa_MAT-kbetr = ls_prcd-kbetr. " vat rate
+      wa_MAT-gross = ls_prcd-kawrt. "gross
+      wa_MAT-vatamt = ls_prcd-kwert. "Vat amount
+      wa_MAT-net = ls_prcd-kawrt + ls_prcd-kwert. "Net
+      endif.
+      APPEND wa_mat TO gs_mat.
+clear : ls_tmp1,wa_mat.					
+endloop.
+
+
+
+    CALL FUNCTION 'SSF_FUNCTION_MODULE_NAME'
+      EXPORTING
+        formname = 'ZSF_INVOICE_LAYOUT_IN'
+      IMPORTING
+        fm_name  = sform_fm.
+*    IF sy-subrc <> 0.
+** Implement suitable error handling here
+*    ENDIF.
+    CALL FUNCTION '/1BCDWB/SF00000015'
+* EXPORTING
+*   ARCHIVE_INDEX              =
+*   ARCHIVE_INDEX_TAB          =
+*   ARCHIVE_PARAMETERS         =
+*   CONTROL_PARAMETERS         =
+*   MAIL_APPL_OBJ              =
+*   MAIL_RECIPIENT             =
+*   MAIL_SENDER                =
+*   OUTPUT_OPTIONS             =
+*   USER_SETTINGS              = 'X'
+* IMPORTING
+*   DOCUMENT_OUTPUT_INFO       =
+*   JOB_OUTPUT_INFO            =
+*   JOB_OUTPUT_OPTIONS         =
+      TABLES
+        gs_final = gs_final
+        gs_mat   = gs_mat
+* EXCEPTIONS
+*       FORMATTING_ERROR           = 1
+*       INTERNAL_ERROR             = 2
+*       SEND_ERROR                 = 3
+*       USER_CANCELED              = 4
+*       OTHERS   = 5
+      .
+*    IF sy-subrc <> 0.
+**   Implement suitable error handling here
+*    ENDIF.
+
+
+  ENDIF.
+ENDIF.
